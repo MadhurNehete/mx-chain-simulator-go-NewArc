@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+    @page { size: A4; margin: 2.54cm; }
+    body { font-family: 'Times New Roman', Times, serif; color: black; line-height: 1.5; padding: 0; background-color: white; font-size: 11pt; }
+    h1 { font-size: 20pt; margin-top: 0; margin-bottom: 20pt; border-bottom: 2.5pt solid black; padding-bottom: 8pt; text-transform: uppercase; text-align: center; }
+    h2 { font-size: 15pt; margin-top: 25pt; margin-bottom: 12pt; border-bottom: 1.5pt solid black; padding-bottom: 4pt; text-transform: uppercase; }
+    h3 { font-size: 12pt; margin-top: 15pt; margin-bottom: 8pt; font-weight: bold; text-decoration: underline; }
+    p { margin-top: 8pt; margin-bottom: 8pt; text-align: justify; }
+    table { width: 100%; border-collapse: collapse; margin: 15pt 0; page-break-inside: avoid; }
+    th, td { border: 1.2pt solid black; padding: 10pt 12pt; text-align: left; vertical-align: top; }
+    th { background-color: #f2f2f2; font-weight: bold; text-transform: uppercase; font-size: 10pt; letter-spacing: 0.5pt; }
+    .issue-box { margin-top: 20pt; margin-bottom: 30pt; page-break-inside: avoid; border-left: 5pt solid black; padding-left: 20pt; }
+    pre { background-color: #fafafa; border: 1pt solid #ccc; padding: 12pt; font-family: 'Courier New', Courier, monospace; font-size: 9pt; margin: 10pt 0; white-space: pre-wrap; word-wrap: break-word; }
+    .code-label { font-weight: bold; font-size: 9pt; text-transform: uppercase; margin-top: 15pt; display: block; }
+    .status-reject { font-weight: bold; border: 1.5pt solid black; padding: 2pt 6pt; }
+    hr { border: 0; border-top: 1pt solid #ddd; margin: 30pt 0; }
+    .info-summary { font-style: italic; text-align: center; margin-bottom: 30pt; }
+</style>
+</head>
+<body>
+    <h1>Security Audit Report</h1>
+    <div class="info-summary">
+        Project: mx-chain-simulator-go-NewArc | Assessment Type: Real-World Threat Analysis
+    </div>
+
+    <h2>Executive Summary</h2>
+    <p>This comprehensive security audit identifies 5 critical vulnerabilities within the <code>mx-chain-simulator-go-NewArc</code> codebase. These issues represent significant risks to the confidentiality, integrity, and availability of the simulator and its host environment. All findings are currently classified as <strong>REJECTED</strong>. The repository is deemed unfit for production or shared-environment deployment until the recommended remediations are verified across the target infrastructure.</p>
+
+    <table>
+        <thead>
+            <tr><th>#</th><th>Vulnerability Title</th><th>Location</th><th>Severity</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>1</td><td>Unbounded Resource Consumption (DoS)</td><td>pkg/facade/simulatorFacade.go:L61</td><td>High</td><td class="status-reject">REJECT</td></tr>
+            <tr><td>2</td><td>Symlink Following in Config Fetching</td><td>pkg/proxy/configs/copy.go:L19</td><td>Medium</td><td class="status-reject">REJECT</td></tr>
+            <tr><td>3</td><td>Insecure Container Configuration (Root)</td><td>Dockerfile:L35</td><td>Medium</td><td class="status-reject">REJECT</td></tr>
+            <tr><td>4</td><td>Sensitive Data Persistence in /tmp</td><td>cmd/chainsimulator/main.go:L207</td><td>High</td><td class="status-reject">REJECT</td></tr>
+            <tr><td>5</td><td>Argument Injection in exec.Command</td><td>pkg/proxy/configs/configs.go:L40</td><td>Medium</td><td class="status-reject">REJECT</td></tr>
+        </tbody>
+    </table>
+
+    <hr>
+
+    <div class="issue-box">
+        <h2>1. Unbounded Resource Consumption (DoS)</h2>
+        <p><strong>Severity:</strong> High | <strong>CWE:</strong> CWE-400 (Uncontrolled Resource Consumption)</p>
+        
+        <h3>Technical Description</h3>
+        <p>The simulator's API provides endpoints to generate blocks or progress epochs. These functions wrap the core simulator logic and are protected by a global synchronization mutex. The implementation failed to validate integer inputs. An attacker can submit a request with an extremely large block count, forcing a massive CPU-bound loop while holding the global lock.</p>
+
+        <h3>Operational Impact</h3>
+        <p>A single malicious request will cause the simulator process to consume 100% CPU and block all other API requests indefinitely. This results in a total Denial of Service (DoS).</p>
+
+        <span class="code-label">Vulnerable Code (Before):</span>
+        <pre>func (sf *simulatorFacade) GenerateBlocks(numOfBlocks int) error {
+    if numOfBlocks <= 0 {
+        return errInvalidNumOfBlocks
+    }
+    return sf.simulator.GenerateBlocks(numOfBlocks)
+}</pre>
+
+        <span class="code-label">Remediated Code (After):</span>
+        <pre>func (sf *simulatorFacade) GenerateBlocks(numOfBlocks int) error {
+    if numOfBlocks <= 0 || numOfBlocks > maxBlocksToGenerate {
+        return fmt.Errorf("invalid blocks count (max: %d)", maxBlocksToGenerate)
+    }
+    return sf.simulator.GenerateBlocks(numOfBlocks)
+}</pre>
+    </div>
+
+    <div class="issue-box">
+        <h2>2. Symlink Following in Config Fetching</h2>
+        <p><strong>Severity:</strong> Medium | <strong>CWE:</strong> CWE-59 (Improper Link Resolution)</p>
+
+        <h3>Technical Description</h3>
+        <p>The <code>copyFolderWithAllFiles</code> function recursively traverses directories but follows symbolic links by default. If a repository contains a symlink pointing to a file outside the repository, the simulator will copy the contents of the target file into its workspace.</p>
+
+        <h3>Operational Impact</h3>
+        <p>This is an Arbitrary File Read vulnerability. Attackers can exfiltrate sensitive host-level files (SSH keys, credentials) by making them available within the simulator's workspace.</p>
+
+        <span class="code-label">Vulnerable Code (Before):</span>
+        <pre>return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+    if info.IsDir() {
+        return os.MkdirAll(filepath.Join(dst, relPath), info.Mode())
+    }
+    in, err := os.Open(path)
+    // ... logic blindly copies file contents
+})</pre>
+
+        <span class="code-label">Remediated Code (After):</span>
+        <pre>return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+    if info.Mode()&os.ModeSymlink != 0 {
+        return nil // Securely skip symbolic links
+    }
+    if info.IsDir() {
+        return os.MkdirAll(filepath.Join(dst, relPath), info.Mode())
+    }
+    // ... rest of secure copy
+})</pre>
+    </div>
+
+    <div class="issue-box">
+        <h2>3. Insecure Container Configuration (Root)</h2>
+        <p><strong>Severity:</strong> Medium | <strong>CWE:</strong> CWE-250 (Execution with Unnecessary Privileges)</p>
+
+        <h3>Technical Description</h3>
+        <p>The <code>Dockerfile</code> does not define a non-root user, causing the simulator to run with UID 0 (root) inside the container. This violates the principle of least privilege.</p>
+
+        <h3>Operational Impact</h3>
+        <p>Running as root increases the blast radius of any exploit. It facilitates container escapes, unauthorized host volume access, and lateral movement within the network.</p>
+
+        <span class="code-label">Vulnerable Code (Before):</span>
+        <pre>FROM ubuntu:22.04
+COPY --from=builder /bin/chainsimulator /multiversx/
+ENTRYPOINT ["./chainsimulator"]</pre>
+
+        <span class="code-label">Remediated Code (After):</span>
+        <pre>FROM ubuntu:22.04
+RUN groupadd -r simulator && useradd -r -g simulator simulator
+RUN chown -R simulator:simulator /multiversx
+USER simulator
+ENTRYPOINT ["./chainsimulator"]</pre>
+    </div>
+
+    <div class="issue-box">
+        <h2>4. Sensitive Data Persistence in /tmp</h2>
+        <p><strong>Severity:</strong> High | <strong>CWE:</strong> CWE-312 (Cleartext Storage of Sensitive Information)</p>
+
+        <h3>Technical Description</h3>
+        <p>The simulator generates a <code>walletKey.pem</code> file in a temporary directory containing unencrypted private keys. The application lacks any logic to delete these files when the process terminates.</p>
+
+        <h3>Operational Impact</h3>
+        <p>On shared machines, these private keys remain on disk indefinitely. Any user with local access can recover these keys and gain control over the simulated blockchain authority.</p>
+
+        <span class="code-label">Vulnerable Code (Before):</span>
+        <pre>func main() {
+    tempDir, _ := os.MkdirTemp(os.TempDir(), "sim-*")
+    startSimulator(tempDir)
+    // Application exits; tempDir remains on disk
+}</pre>
+
+        <span class="code-label">Remediated Code (After):</span>
+        <pre>func main() {
+    tempDir, _ := os.MkdirTemp(os.TempDir(), "sim-*")
+    defer os.RemoveAll(tempDir) // Atomic cleanup on exit
+    startSimulator(tempDir)
+}</pre>
+    </div>
+
+    <div class="issue-box">
+        <h2>5. Argument Injection in exec.Command</h2>
+        <p><strong>Severity:</strong> Medium | <strong>CWE:</strong> CWE-88 (Improper Neutralization of Argument Delimiters)</p>
+
+        <h3>Technical Description</h3>
+        <p>The application uses <code>exec.Command</code> with arguments derived from configuration. If these strings start with a hyphen, the binary interprets them as command-line flags.</p>
+
+        <h3>Operational Impact</h3>
+        <p>An attacker who can influence the configuration can achieve Remote Code Execution (RCE) by providing a repo URL that executes arbitrary payloads.</p>
+
+        <span class="code-label">Vulnerable Code (Before):</span>
+        <pre>cmd := exec.Command("git", "clone", repoURL, destDir)
+err := cmd.Run()</pre>
+
+        <span class="code-label">Remediated Code (After):</span>
+        <pre>// Use '--' to separate flags from positional arguments
+cmd := exec.Command("git", "clone", "--", repoURL, destDir)
+err := cmd.Run()</pre>
+    </div>
+
+    <hr>
+    <p style="text-align: center; font-size: 9pt;"><em>End of Security Audit Report - Strictly Confidential</em></p>
+</body>
+</html>
