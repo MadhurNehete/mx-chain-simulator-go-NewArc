@@ -1,10 +1,10 @@
 name: Publish Docker image
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [ master, feat/*, rc/* ]
   pull_request:
-  workflow_dispatch:
+    branches: [ master, feat/*, rc/* ]
 
 jobs:
   push_to_registry:

@@ -1,9 +1,9 @@
 name: Run VM query
 on:
   push:
-    branches: [ main, feat/*, rc/* ]
+    branches: [ master, feat/*, rc/* ]
   pull_request:
-    branches: [ main, feat/*, rc/* ]
+    branches: [ master, feat/*, rc/* ]
 
 jobs:
   build:
