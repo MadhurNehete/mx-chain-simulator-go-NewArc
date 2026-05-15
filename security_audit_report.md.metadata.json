@@ -1,5 +1,6 @@
 {
   "artifactType":  "ARTIFACT_TYPE_WALKTHROUGH",
-  "summary":  "Formal security audit report for REAL-4 (BigInt Shift Left OOM) and REAL-6 (Unmetered Memory Allocation) vulnerabilities.",
-  "updatedAt":  "2026-05-15T06:12:22.363846780Z"
+  "summary":  "Updated Markdown audit report with 'Date' and 'Status' fields removed.",
+  "updatedAt":  "2026-05-15T07:13:43.842917682Z",
+  "version":  "1"
 }

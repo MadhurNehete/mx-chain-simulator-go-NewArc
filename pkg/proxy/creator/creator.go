@@ -263,7 +263,7 @@ func (p *proxy) GetHttpServer() *http.Server {
 // an environment-driven config.
 func simulatorCorsConfig() config.CorsConfig {
 	return config.CorsConfig{
-		AllowedOrigins:   nil,
+		AllowedOrigins:   []string{"*"},
 		AllowedMethods:   []string{"GET", "POST", "OPTIONS"},
 		AllowedHeaders:   []string{"Origin", "Content-Type", "Accept"},
 		AllowCredentials: false,
