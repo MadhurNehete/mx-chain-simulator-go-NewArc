@@ -39,7 +39,8 @@ COPY --from=builder "/lib_${TARGETARCH}/*" "/lib/"
 RUN groupadd -r simulator && useradd -r -g simulator simulator
 RUN chown -R simulator:simulator /multiversx
 USER simulator
+RUN chmod -R +w /multiversx/chainsimulator/config
 
-ENTRYPOINT ["sh", "-c", "socat TCP-LISTEN:8085,fork,reuseaddr TCP:127.0.0.1:8085 & ./chainsimulator --rest-api-interface=127.0.0.1 --skip-configs-download"]
+ENTRYPOINT ["sh", "-c", "socat TCP-LISTEN:8085,fork,reuseaddr TCP:127.0.0.1:8090 & ./chainsimulator --rest-api-interface=127.0.0.1 --server-port=8090 --skip-configs-download"]
 
 
