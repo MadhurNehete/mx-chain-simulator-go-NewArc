@@ -12,7 +12,8 @@ RUN go build -o chainsimulator
 RUN rm -rf config/node/config config/proxy/config && \ 
     mkdir -p config/node/config config/proxy/config && \ 
     cp -r $(go list -m -f "{{.Dir}}" github.com/multiversx/mx-chain-go)/cmd/node/config/* config/node/config/ && \ 
-    cp -r $(go list -m -f "{{.Dir}}" github.com/multiversx/mx-chain-proxy-go)/cmd/proxy/config/* config/proxy/config/
+    cp -r $(go list -m -f "{{.Dir}}" github.com/multiversx/mx-chain-proxy-go)/cmd/proxy/config/* config/proxy/config/ && \
+    sed -i 's/{ Name = "\/send-user-funds", Open = false, Secured = true, RateLimit = 1 }/{ Name = "\/send-user-funds", Open = true, Secured = false, RateLimit = 0 }/g' config/proxy/config/apiConfig/v1_0.toml
 
 RUN mkdir -p /lib_amd64 /lib_arm64
 

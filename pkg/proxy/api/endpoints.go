@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 	"sync/atomic"
 	"time"
 
@@ -89,13 +88,6 @@ func (ep *endpointsProcessor) ExtendProxyServer(httpServer *http.Server) error {
 	ws.POST(forceUpdateValidatorStatistics, ep.forceUpdateValidatorStatistics)
 	ws.GET(observersInfo, ep.getObserversInfo)
 	ws.POST(epochChange, ep.forceEpochChange)
-	ws.NoRoute(func(c *gin.Context) {
-		path := c.Request.URL.Path
-		if !strings.HasPrefix(path, "/v1.0/") {
-			c.Request.URL.Path = "/v1.0" + path
-			ws.HandleContext(c)
-		}
-	})
 
 	serializerForLogs := &marshal.GogoProtoMarshalizer{}
 	registerLoggerWsRoute(ws, serializerForLogs)
