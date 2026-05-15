@@ -8,6 +8,7 @@ OverridableConfigTomlValues = [
 { File = "enableEpochs.toml", Path = "EnableEpochs.StakeLimitsEnableEpoch", Value = 1000000 },
 { File = "enableEpochs.toml", Path = "EnableEpochs.StakeLimitsEnableEpoch", Value = 1000000 },
 { File = "enableEpochs.toml", Path = "EnableEpochs.StakeLimitsEnableEpoch", Value = 1000000 },
+{ File = "enableEpochs.toml", Path = "EnableEpochs.StakeLimitsEnableEpoch", Value = 1000000 },
     # Enable DRWA for local chain-simulator integration runs. The authorized callers are
     # dummy bootstrap values; the DRWA interactor overwrites the system-account records
     # with the actual deployed contract addresses once the simulator is running.
