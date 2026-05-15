@@ -18,16 +18,24 @@ def main():
     print(f"working with the generated address: {address.to_bech32()}")
 
     # call proxy faucet
-    provider.do_post_generic("transaction/send-user-funds", {"receiver": f"{address.to_bech32()}"})
-    provider.do_post_generic(f"{GENERATE_BLOCKS_URL}/1", {})
+    data = {
+        "receiver": f"{address.to_bech32()}",
+        "value": 20000000000000000000000  # 20k eGLD
+    }
+    provider.do_post_generic("transaction/send-user-funds", data)
+    # generate blocks to ensure cross-shard settlement of faucet funds
+    provider.do_post_generic(f"{GENERATE_BLOCKS_URL}/10", {})
 
     # cross-shard transfer
     config = TransactionsFactoryConfig(provider.get_network_config().chain_id)
     tx_factory = TransferTransactionsFactory(config)
     amount_egld = 1000000000000000000  # 1 egld
-    receiver = Address.new_from_bech32(
-        "erd13kp9r5fx4tf8da4ex37sd48pc4xhkmtteq6hcyt4y36pstte0tjqxjf3ns"
-    )
+    
+    # generate a fresh receiver address to avoid state leakage
+    receiver_key = UserSecretKey.generate()
+    receiver = receiver_key.generate_public_key().to_address("erd")
+    print(f"transferring to a fresh receiver: {receiver.to_bech32()}")
+
     call_transaction = tx_factory.create_transaction_for_native_token_transfer(
         sender=address,
         receiver=receiver,
@@ -48,6 +56,8 @@ def main():
     if receiver_account.balance != amount_egld:
         sys.exit(f"receiver did not receive the transferred amount"
                  f"expected balance: {amount_egld}, current balance: {receiver_account.balance}")
+
+    print("transaction was executed, move balance was successful")
 
 
 if __name__ == "__main__":

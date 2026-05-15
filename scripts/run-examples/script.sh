@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 CHAIN_SIMULATOR_URL=http://localhost:8085
 

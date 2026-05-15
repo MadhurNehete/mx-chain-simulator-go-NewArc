@@ -5,10 +5,19 @@ from pathlib import Path
 from multiversx_sdk import Account, NetworkEntrypoint, UserSecretKey
 
 SIMULATOR_URL = "http://localhost:8085"
+GENERATE_BLOCKS_URL = "simulator/generate-blocks"
 GENERATE_BLOCKS_UNTIL_EPOCH_REACHED_URL = "simulator/generate-blocks-until-epoch-reached"
 GENERATE_BLOCKS_UNTIL_TX_PROCESSED = "simulator/generate-blocks-until-transaction-processed"
 
 parent_directory = Path(__file__).parent
+
+
+def ensure_epoch(provider, target_epoch):
+    status = provider.get_network_status()
+    current_epoch = status.raw.get("erd_epoch_number", 0)
+    if current_epoch < target_epoch:
+        provider.do_post_generic(f"{GENERATE_BLOCKS_UNTIL_EPOCH_REACHED_URL}/{target_epoch}", {})
+
 
 def main():
     entrypoint = NetworkEntrypoint(
@@ -26,13 +35,18 @@ def main():
     print(f"working with the generated address: {account.address.to_bech32()}")
 
     # call proxy faucet
-    data = {"receiver": f"{account.address.to_bech32()}"}
+    data = {
+        "receiver": f"{account.address.to_bech32()}",
+        "value": 20000000000000000000000  # 20k eGLD
+    }
     provider.do_post_generic("transaction/send-user-funds", data)
+    # generate blocks to ensure cross-shard settlement of faucet funds
+    provider.do_post_generic(f"{GENERATE_BLOCKS_URL}/10", {})
 
     account.nonce = entrypoint.recall_account_nonce(account.address)
 
     # generate blocks until smart contract deploys are enabled
-    provider.do_post_generic(f"{GENERATE_BLOCKS_UNTIL_EPOCH_REACHED_URL}/1", {})
+    ensure_epoch(provider, 1)
 
     sc_factory = entrypoint.create_smart_contract_transactions_factory()
 

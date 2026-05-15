@@ -8,11 +8,18 @@ from multiversx_sdk import (ProxyNetworkProvider,
                             TransactionsFactoryConfig, UserSecretKey)
 
 SIMULATOR_URL = "http://localhost:8085"
-GENERATE_BLOCKS_URL = "/simulator/generate-blocks"
+GENERATE_BLOCKS_URL = "simulator/generate-blocks"
 GENERATE_BLOCKS_UNTIL_EPOCH_REACHED_URL = "simulator/generate-blocks-until-epoch-reached"
 GENERATE_BLOCKS_UNTIL_TX_PROCESSED = "simulator/generate-blocks-until-transaction-processed"
 
 parent_directory = Path(__file__).parent
+
+
+def ensure_epoch(provider, target_epoch):
+    status = provider.get_network_status()
+    current_epoch = status.raw.get("erd_epoch_number", 0)
+    if current_epoch < target_epoch:
+        provider.do_post_generic(f"{GENERATE_BLOCKS_UNTIL_EPOCH_REACHED_URL}/{target_epoch}", {})
 
 
 def main():
@@ -24,11 +31,16 @@ def main():
     print(f"working with the generated address: {address.to_bech32()}")
 
     # call proxy faucet
-    data = {"receiver": f"{address.to_bech32()}"}
+    data = {
+        "receiver": f"{address.to_bech32()}",
+        "value": 20000000000000000000000  # 20k eGLD
+    }
     provider.do_post_generic("transaction/send-user-funds", data)
+    # generate blocks to ensure cross-shard settlement of faucet funds
+    provider.do_post_generic(f"{GENERATE_BLOCKS_URL}/10", {})
 
     # generate blocks until smart contract deploys & ESDTs are enabled
-    provider.do_post_generic(f"{GENERATE_BLOCKS_UNTIL_EPOCH_REACHED_URL}/1", {})
+    ensure_epoch(provider, 1)
 
     config = TransactionsFactoryConfig(provider.get_network_config().chain_id)
     sc_factory = SmartContractTransactionsFactory(config)
@@ -93,8 +105,9 @@ def main():
     if status.status != "pending":
         sys.exit(f"incorrect status of transaction: expected->pending, received->{status}")
 
-    provider.do_post_generic(f"{GENERATE_BLOCKS_URL}/3", {})
-    status = status = provider.get_transaction_status(tx_hash)
+    # Generate more blocks to ensure the failing transaction is processed
+    provider.do_post_generic(f"{GENERATE_BLOCKS_URL}/10", {})
+    status = provider.get_transaction_status(tx_hash)
     if status.status != "fail":
         sys.exit(f"incorrect status of transaction: expected->fail, received->{status}")
 
