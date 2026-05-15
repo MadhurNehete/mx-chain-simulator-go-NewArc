@@ -14,7 +14,7 @@ def enqueue_output(pipe, q):
 
 
 def extract_port_from_process(proc, index):
-    port_pattern = re.compile(r'INFO.*chain simulator\'s is accessible through the URL localhost:(\d+)')
+    port_pattern = re.compile(r'INFO.*chain simulator\'s API is accessible through the URL: localhost:(\d+)')
     ansi_escape = re.compile(r'\x1B[@-_][0-?]*[ -/]*[@-~]')
 
     q = queue.Queue()
@@ -25,15 +25,25 @@ def extract_port_from_process(proc, index):
 
     while True:
         try:
-            line = q.get_nowait()  # Get line from the queue non-blocking
+            line = q.get(timeout=0.1)  # Get line from the queue with timeout
         except queue.Empty:
             if proc.poll() is not None:
                 break  # Process has finished and queue is empty
             continue
 
         # Decode the line and remove ANSI escape sequences
-        line = line.decode('utf-8').strip()
-        cleaned_line = ansi_escape.sub('', line)
+        try:
+            line_str = line.decode('utf-8').strip()
+        except Exception as e:
+            line_str = str(line)
+        
+        cleaned_line = ansi_escape.sub('', line_str)
+        if index == 0:
+            print(f"DEBUG[0]: line='{cleaned_line}'")
+        elif "accessible through" in cleaned_line:
+            print(f"DEBUG[{index}]: line='{cleaned_line}'")
+        if "accessible through" in cleaned_line:
+            print(f"DEBUG: index={index}, line='{cleaned_line}'")
         # Search for the port number
         match = port_pattern.search(cleaned_line)
         if match:

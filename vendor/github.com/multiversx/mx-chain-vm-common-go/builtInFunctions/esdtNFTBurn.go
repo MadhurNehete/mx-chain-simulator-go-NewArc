@@ -1,0 +1,177 @@
+package builtInFunctions
+
+import (
+	"math/big"
+	"sync"
+
+	"github.com/multiversx/mx-chain-core-go/core"
+	"github.com/multiversx/mx-chain-core-go/core/check"
+	"github.com/multiversx/mx-chain-vm-common-go"
+)
+
+type esdtNFTBurn struct {
+	baseAlwaysActiveHandler
+	vmcommon.BlockchainDataProvider
+	keyPrefix             []byte
+	esdtStorageHandler    vmcommon.ESDTNFTStorageHandler
+	globalSettingsHandler vmcommon.ExtendedESDTGlobalSettingsHandler
+	rolesHandler          vmcommon.ESDTRoleHandler
+	enableEpochsHandler   vmcommon.EnableEpochsHandler
+	drwaReader            drwaStateReader
+	gasConfig             vmcommon.BaseOperationCost
+	funcGasCost           uint64
+	mutExecution          sync.RWMutex
+}
+
+// NewESDTNFTBurnFunc returns the esdt NFT burn built-in function component
+func NewESDTNFTBurnFunc(
+	funcGasCost uint64,
+	esdtStorageHandler vmcommon.ESDTNFTStorageHandler,
+	globalSettingsHandler vmcommon.ExtendedESDTGlobalSettingsHandler,
+	rolesHandler vmcommon.ESDTRoleHandler,
+	enableEpochsHandler vmcommon.EnableEpochsHandler,
+) (*esdtNFTBurn, error) {
+	if check.IfNil(esdtStorageHandler) {
+		return nil, ErrNilESDTNFTStorageHandler
+	}
+	if check.IfNil(globalSettingsHandler) {
+		return nil, ErrNilGlobalSettingsHandler
+	}
+	if check.IfNil(rolesHandler) {
+		return nil, ErrNilRolesHandler
+	}
+	if check.IfNil(enableEpochsHandler) {
+		return nil, ErrNilEnableEpochsHandler
+	}
+
+	e := &esdtNFTBurn{
+		BlockchainDataProvider: NewBlockchainDataProvider(),
+		keyPrefix:              []byte(baseESDTKeyPrefix),
+		esdtStorageHandler:     esdtStorageHandler,
+		globalSettingsHandler:  globalSettingsHandler,
+		rolesHandler:           rolesHandler,
+		enableEpochsHandler:    enableEpochsHandler,
+		funcGasCost:            funcGasCost,
+		mutExecution:           sync.RWMutex{},
+	}
+
+	return e, nil
+}
+
+func (e *esdtNFTBurn) SetDRWAReader(reader drwaStateReader) {
+	e.mutExecution.Lock()
+	e.drwaReader = reader
+	e.mutExecution.Unlock()
+}
+
+// SetNewGasConfig is called whenever gas cost is changed
+func (e *esdtNFTBurn) SetNewGasConfig(gasCost *vmcommon.GasCost) {
+	if gasCost == nil {
+		return
+	}
+
+	e.mutExecution.Lock()
+	e.funcGasCost = gasCost.BuiltInCost.ESDTNFTBurn
+	e.gasConfig = gasCost.BaseOperationCost
+	e.mutExecution.Unlock()
+}
+
+// ProcessBuiltinFunction resolves ESDT NFT burn function call
+// Requires 3 arguments:
+// arg0 - token identifier
+// arg1 - nonce
+// arg2 - quantity to burn
+func (e *esdtNFTBurn) ProcessBuiltinFunction(
+	acntSnd, _ vmcommon.UserAccountHandler,
+	vmInput *vmcommon.ContractCallInput,
+) (*vmcommon.VMOutput, error) {
+	e.mutExecution.RLock()
+	defer e.mutExecution.RUnlock()
+
+	err := checkESDTNFTCreateBurnAddInput(acntSnd, vmInput, e.funcGasCost)
+	if err != nil {
+		return nil, err
+	}
+	if len(vmInput.Arguments) < 3 {
+		return nil, ErrInvalidArguments
+	}
+	drwaGasCost := uint64(0)
+	if isDRWAEnforcementEnabled(e.enableEpochsHandler) {
+		if e.drwaReader == nil {
+			recordDRWAGateMetric(drwaGateMetricReaderMissing)
+			return nil, errDRWAStateReaderMissing
+		}
+
+		regulated, drwaErr := evaluateDRWASenderTransfer(e.drwaReader, vmInput.Arguments[0], vmInput.CallerAddr, acntSnd, e.CurrentRound())
+		if drwaErr != nil {
+			return nil, drwaErr
+		}
+		if regulated {
+			drwaGasCost = computeDRWAReadGasCost(e.gasConfig, e.funcGasCost, 4)
+			if vmInput.GasProvided < e.funcGasCost+drwaGasCost {
+				return nil, ErrNotEnoughGas
+			}
+		}
+	}
+
+	esdtTokenKey := append(e.keyPrefix, vmInput.Arguments[0]...)
+	err = e.isAllowedToBurn(acntSnd, vmInput.Arguments[0])
+	if err != nil {
+		return nil, err
+	}
+
+	nonce := big.NewInt(0).SetBytes(vmInput.Arguments[1]).Uint64()
+	esdtData, err := e.esdtStorageHandler.GetESDTNFTTokenOnSender(acntSnd, esdtTokenKey, nonce)
+	if err != nil {
+		return nil, err
+	}
+	if nonce == 0 {
+		return nil, ErrNFTDoesNotHaveMetadata
+	}
+
+	quantityToBurn := big.NewInt(0).SetBytes(vmInput.Arguments[2])
+	if esdtData.Value.Cmp(quantityToBurn) < 0 {
+		return nil, ErrInvalidNFTQuantity
+	}
+
+	esdtData.Value.Sub(esdtData.Value, quantityToBurn)
+
+	properties := vmcommon.NftSaveArgs{
+		MustUpdateAllFields:         false,
+		IsReturnWithError:           vmInput.ReturnCallAfterError,
+		KeepMetaDataOnZeroLiquidity: false,
+	}
+	_, err = e.esdtStorageHandler.SaveESDTNFTToken(acntSnd.AddressBytes(), acntSnd, esdtTokenKey, nonce, esdtData, properties)
+	if err != nil {
+		return nil, err
+	}
+
+	err = e.esdtStorageHandler.AddToLiquiditySystemAcc(esdtTokenKey, esdtData.Type, nonce, big.NewInt(0).Neg(quantityToBurn), false)
+	if err != nil {
+		return nil, err
+	}
+
+	vmOutput := &vmcommon.VMOutput{
+		ReturnCode:   vmcommon.Ok,
+		GasRemaining: vmInput.GasProvided - e.funcGasCost - drwaGasCost,
+	}
+
+	addESDTEntryInVMOutput(vmOutput, []byte(core.BuiltInFunctionESDTNFTBurn), vmInput.Arguments[0], nonce, quantityToBurn, vmInput.CallerAddr)
+
+	return vmOutput, nil
+}
+
+func (e *esdtNFTBurn) isAllowedToBurn(acntSnd vmcommon.UserAccountHandler, tokenID []byte) error {
+	esdtTokenKey := append(e.keyPrefix, tokenID...)
+	isBurnForAll := e.globalSettingsHandler.IsBurnForAll(esdtTokenKey)
+	if isBurnForAll {
+		return nil
+	}
+
+	return e.rolesHandler.CheckAllowedToExecute(acntSnd, tokenID, []byte(core.ESDTRoleNFTBurn))
+}
+
+// IsInterfaceNil returns true if underlying object in nil
+func (e *esdtNFTBurn) IsInterfaceNil() bool {
+	return e == nil
+}

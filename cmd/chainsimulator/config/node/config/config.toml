@@ -43,13 +43,39 @@
     # ChainParametersByEpoch defines chain operation configurable values that can be modified based on epochs
     ChainParametersByEpoch = [
         { EnableEpoch = 0, RoundDuration = 6000, ShardConsensusGroupSize = 7, ShardMinNumNodes = 10, MetachainConsensusGroupSize = 10, MetachainMinNumNodes = 10, Hysteresis = 0.2, Adaptivity = false },
-        { EnableEpoch = 1, RoundDuration = 6000, ShardConsensusGroupSize = 10, ShardMinNumNodes = 10, MetachainConsensusGroupSize = 10, MetachainMinNumNodes = 10, Hysteresis = 0.2, Adaptivity = false }
+        { EnableEpoch = 1, RoundDuration = 6000, ShardConsensusGroupSize = 10, ShardMinNumNodes = 10, MetachainConsensusGroupSize = 10, MetachainMinNumNodes = 10, Hysteresis = 0.2, Adaptivity = false },
+        { EnableEpoch = 2, RoundDuration = 6000, ShardConsensusGroupSize = 10, ShardMinNumNodes = 10, MetachainConsensusGroupSize = 10, MetachainMinNumNodes = 10, Hysteresis = 0.2, Adaptivity = false }
     ]
 
     # EpochChangeGracePeriodEnableEpoch represents the configuration of different grace periods for epoch change with their activation epochs
     EpochChangeGracePeriodByEpoch = [
         {EnableEpoch = 0, GracePeriodInRounds = 1 },
         {EnableEpoch = 1, GracePeriodInRounds = 10 }, # Andromeda epoch comes with a longer grace period
+    ]
+
+    # ProcessConfigsByEpoch defines process configuration parameters by epoch
+    ProcessConfigsByEpoch = [
+        { EnableEpoch = 0, MaxMetaNoncesBehind = 15, MaxMetaNoncesBehindForGlobalStuck = 30, MaxShardNoncesBehind = 15 }
+    ]
+
+    # ProcessConfigsByRound defines process configuration parameters by round
+    ProcessConfigsByRound = [
+        { EnableRound = 0, MaxRoundsWithoutNewBlockReceived = 10, MaxRoundsWithoutCommittedBlock = 10, RoundModulusTriggerWhenSyncIsStuck = 20, MaxSyncWithErrorsAllowed = 20, MaxRoundsToKeepUnprocessedMiniBlocks = 3000, MaxRoundsToKeepUnprocessedTransactions = 3000, NumFloodingRoundsFastReacting = 10, NumFloodingRoundsSlowReacting = 2, NumFloodingRoundsOutOfSpecs = 2, MaxConsecutiveRoundsOfRatingDecrease = 600, MaxRoundsOfInactivityAccepted = 3, MaxBlockProcessingTimeMs = 100, NumHeadersToRequestInAdvance = 10 }
+    ]
+
+    # EpochStartConfigsByEpoch defines epoch start configuration parameters by epoch
+    EpochStartConfigsByEpoch = [
+        { EnableEpoch = 0, GracePeriodRounds = 1, ExtraDelayForRequestBlockInfoInMilliseconds = 3000 }
+    ]
+
+    # EpochStartConfigsByRound defines epoch start configuration parameters by round
+    EpochStartConfigsByRound = [
+        { EnableRound = 0, MaxRoundsWithoutCommittedStartInEpochBlock = 50 }
+    ]
+
+    # ConsensusConfigsByEpoch defines consensus configuration parameters by epoch
+    ConsensusConfigsByEpoch = [
+        { EnableEpoch = 0, NumRoundsToWaitBeforeSignalingChronologyStuck = 10 }
     ]
 
 [HardwareRequirements]
@@ -73,6 +99,7 @@
         { StartEpoch = 0, Version = "*" },
         # The value of StartEpoch parameter for version 2 should be the same with the ScheduledMiniBlocksEnableEpoch flag from enableEpoch.toml file
         { StartEpoch = 1, Version = "2" },
+        { StartEpoch = 2, Version = "3" },
     ]
     [Versions.Cache]
         Name = "VersionsCache"
@@ -545,74 +572,9 @@
 
 [Antiflood]
     Enabled = true
-    NumConcurrentResolverJobs = 50
-    NumConcurrentResolvingTrieNodesJobs = 3
-    [Antiflood.FastReacting]
-        IntervalInSeconds = 1
-        ReservedPercent   = 20.0
-        [Antiflood.FastReacting.PeerMaxInput]
-            BaseMessagesPerInterval  = 280
-            TotalSizePerInterval = 4194304 #4MB/s
-            [Antiflood.FastReacting.PeerMaxInput.IncreaseFactor]
-                Threshold = 10 #if consensus size will exceed this value, then
-                Factor = 1.0   #increase the base value with [factor*consensus size]
-        [Antiflood.FastReacting.BlackList]
-            ThresholdNumMessagesPerInterval = 1000
-            ThresholdSizePerInterval = 8388608 #8MB/s
-            NumFloodingRounds = 10
-            PeerBanDurationInSeconds = 300
-
-    [Antiflood.SlowReacting]
-        IntervalInSeconds = 30
-        ReservedPercent   = 20.0
-        [Antiflood.SlowReacting.PeerMaxInput]
-            BaseMessagesPerInterval = 6000
-            TotalSizePerInterval = 18874368 # 18MB/interval
-            [Antiflood.SlowReacting.PeerMaxInput.IncreaseFactor]
-                Threshold = 10 #if consensus size will exceed this value, then
-                Factor = 0.0   #increase the base value with [factor*consensus size]
-        [Antiflood.SlowReacting.BlackList]
-            ThresholdNumMessagesPerInterval = 10000
-            ThresholdSizePerInterval = 37748736 # 36MB/interval
-            NumFloodingRounds = 2
-            PeerBanDurationInSeconds = 3600
-
-    [Antiflood.OutOfSpecs]
-        IntervalInSeconds = 1
-        ReservedPercent   = 0.0
-        [Antiflood.OutOfSpecs.PeerMaxInput]
-            BaseMessagesPerInterval = 2000
-            TotalSizePerInterval = 10485760 # 10MB/interval
-            [Antiflood.OutOfSpecs.PeerMaxInput.IncreaseFactor]
-                Threshold = 0 #if consensus size will exceed this value, then
-                Factor = 0.0     #increase the base value with [factor*consensus size]
-        [Antiflood.OutOfSpecs.BlackList]
-            ThresholdNumMessagesPerInterval = 3600
-            ThresholdSizePerInterval = 12582912 # 12MB/interval
-            NumFloodingRounds = 2
-            PeerBanDurationInSeconds = 3600
-
-    [Antiflood.PeerMaxOutput]
-        BaseMessagesPerInterval  = 150
-        TotalSizePerInterval     = 2097152 #2MB/s
-
-    [Antiflood.Cache]
-        Name = "Antiflood"
-        Capacity = 7000
-        Type = "LRU"
-    [Antiflood.Topic]
-        DefaultMaxMessagesPerSec = 15000
-        MaxMessages = [{ Topic = "shardBlocks*", NumMessagesPerSec = 30 },
-                       { Topic = "metachainBlocks", NumMessagesPerSec = 30 }]
-
-    [Antiflood.TxAccumulator]
-        # MaxAllowedTimeInMilliseconds is used as a time frame in which the node gathers transactions.
-        # After this period, collected transactions will be sent on the p2p topics
-        MaxAllowedTimeInMilliseconds = 250
-        # MaxDeviationTimeInMilliseconds represents the time in miliseconds that will cause the effectual time frame be
-        # less than the specified max value. This is used to create desynchronizations between senders as to not
-        # clutter the network exactly in the same moment
-        MaxDeviationTimeInMilliseconds = 25
+    ConfigsByRound = [
+        { Round = 0, NumConcurrentResolverJobs = 50, NumConcurrentResolvingTrieNodesJobs = 3, FastReacting = { IntervalInSeconds = 1, ReservedPercent = 20.0, PeerMaxInput = { BaseMessagesPerInterval = 280, TotalSizePerInterval = 4194304, IncreaseFactor = { Threshold = 10, Factor = 1.0 } }, BlackList = { ThresholdNumMessagesPerInterval = 1000, ThresholdSizePerInterval = 8388608, NumFloodingRounds = 10, PeerBanDurationInSeconds = 300 } }, SlowReacting = { IntervalInSeconds = 30, ReservedPercent = 20.0, PeerMaxInput = { BaseMessagesPerInterval = 6000, TotalSizePerInterval = 18874368, IncreaseFactor = { Threshold = 10, Factor = 0.0 } }, BlackList = { ThresholdNumMessagesPerInterval = 10000, ThresholdSizePerInterval = 37748736, NumFloodingRounds = 2, PeerBanDurationInSeconds = 3600 } }, OutOfSpecs = { IntervalInSeconds = 1, ReservedPercent = 0.0, PeerMaxInput = { BaseMessagesPerInterval = 2000, TotalSizePerInterval = 10485760, IncreaseFactor = { Threshold = 0, Factor = 0.0 } }, BlackList = { ThresholdNumMessagesPerInterval = 3600, ThresholdSizePerInterval = 12582912, NumFloodingRounds = 2, PeerBanDurationInSeconds = 3600 } }, PeerMaxOutput = { IntervalInSeconds = 1, ReservedPercent = 0.0, PeerMaxInput = { BaseMessagesPerInterval = 150, TotalSizePerInterval = 2097152, IncreaseFactor = { Threshold = 0, Factor = 0.0 } }, BlackList = { ThresholdNumMessagesPerInterval = 1000, ThresholdSizePerInterval = 1000, NumFloodingRounds = 1, PeerBanDurationInSeconds = 1 } }, Cache = { Name = "Antiflood", Capacity = 7000, Type = "LRU" }, Topic = { DefaultMaxMessagesPerSec = 15000, MaxMessages = [{ Topic = "shardBlocks*", NumMessagesPerSec = 30 }, { Topic = "metachainBlocks", NumMessagesPerSec = 30 }] }, TxAccumulator = { MaxAllowedTimeInMilliseconds = 250, MaxDeviationTimeInMilliseconds = 25 } }
+    ]
 
 [WebServerAntiflood]
     WebServerAntifloodEnabled = true

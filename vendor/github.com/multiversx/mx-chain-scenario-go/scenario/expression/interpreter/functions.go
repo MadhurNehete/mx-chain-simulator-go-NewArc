@@ -1,0 +1,115 @@
+package scenexpressioninterpreter
+
+import (
+	"encoding/hex"
+	"fmt"
+	"strings"
+
+	"github.com/multiversx/mx-chain-core-go/core"
+	"golang.org/x/crypto/sha3"
+
+	pc "github.com/multiversx/mx-chain-core-go/core/pubkeyConverter"
+)
+
+// SCAddressNumLeadingZeros is the number of zero bytes every smart contract address begins with.
+const SCAddressNumLeadingZeros = 8
+
+// SCAddressReservedPrefixLength is the number of zero bytes every smart contract address begins with.
+// Its value is 10.
+// 10 = 8 zeros for all SC addresses + 2 zeros as placeholder for the VM type.
+const SCAddressReservedPrefixLength = SCAddressNumLeadingZeros + 2
+
+// Keccak256 cryptographic function
+// TODO: externalize the same way as the file resolver
+func Keccak256(data []byte) ([]byte, error) {
+	hash := sha3.NewLegacyKeccak256()
+	hash.Write(data)
+	result := hash.Sum(nil)
+	return result, nil
+}
+
+func decodeShardId(shardIdRaw string) (byte, error) {
+	shardId, err := hex.DecodeString(shardIdRaw)
+	if err != nil {
+		return 0, fmt.Errorf("could not parse address shard id: %w", err)
+	}
+	if len(shardId) != 1 {
+		return 0, fmt.Errorf("bad address shard id length: %s", shardIdRaw)
+	}
+	return shardId[0], nil
+}
+
+func createAddressFromPrefix(prefix []byte, startIndex, endIndex int) (*[32]byte, error) {
+	maxLen := endIndex - startIndex
+	if len(prefix) > maxLen {
+		return nil, fmt.Errorf(
+			"address prefix too long: got %d bytes, max %d",
+			len(prefix),
+			maxLen,
+		)
+	}
+
+	var result [32]byte
+	for i := 0; i < len(prefix); i++ {
+		result[i+startIndex] = prefix[i]
+	}
+	for i := len(prefix) + startIndex; i < endIndex; i++ {
+		result[i] = byte('_')
+	}
+	return &result, nil
+}
+
+func createAddressOptionalShardId(input string, numLeadingZeros int) ([]byte, error) {
+	tokens := strings.Split(input, "#")
+	switch len(tokens) {
+	case 1:
+		address, err := createAddressFromPrefix([]byte(tokens[0]), numLeadingZeros, 32)
+		if err != nil {
+			return nil, err
+		}
+		return address[:], nil
+	case 2:
+		shardId, err := decodeShardId(tokens[1])
+		if err != nil {
+			return []byte{}, err
+		}
+		address, err := createAddressFromPrefix([]byte(tokens[0]), numLeadingZeros, 31)
+		if err != nil {
+			return nil, err
+		}
+		address[31] = shardId
+		return address[:], nil
+	default:
+		return []byte{}, fmt.Errorf("only one shard id separator allowed in address expression. Got: `%s`", input)
+	}
+}
+
+// Generates a 32-byte EOA address based on the input.
+func addressExpression(input string) ([]byte, error) {
+	return createAddressOptionalShardId(input, 0)
+}
+
+// Generates a 32-byte smart contract address based on the input.
+func (ei *ExprInterpreter) scExpression(input string) ([]byte, error) {
+	address, err := createAddressOptionalShardId(input, SCAddressReservedPrefixLength)
+	if err != nil {
+		return nil, err
+	}
+	copy(address[SCAddressReservedPrefixLength-core.VMTypeLen:], ei.GetVMType()[:])
+	return address, err
+}
+
+func bech32Decode(input string) ([]byte, error) {
+	addressLen := 32
+	bpc, err := pc.NewBech32PubkeyConverter(addressLen, core.DefaultAddressPrefix)
+	if err != nil {
+		return []byte{}, fmt.Errorf("failed to create bech32 converter: %w", err)
+	}
+	str, err := bpc.Decode(input)
+
+	if err != nil {
+		return []byte{}, err
+	}
+
+	return str, err
+}

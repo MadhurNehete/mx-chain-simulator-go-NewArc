@@ -1,0 +1,416 @@
+package worldmock
+
+import (
+	"bytes"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"math/big"
+
+	"github.com/multiversx/mx-chain-core-go/core"
+	"github.com/multiversx/mx-chain-core-go/data/esdt"
+	vmcommon "github.com/multiversx/mx-chain-vm-common-go"
+)
+
+var _ vmcommon.BlockchainHook = (*MockWorld)(nil)
+
+// ErrBuiltinFuncWrapperNotInitialized means that the builtin function wrapper was used before initialization.
+var ErrBuiltinFuncWrapperNotInitialized = errors.New("builtin function not found or container not initialized")
+var ErrProvidedBlockchainHookNotInitialized = errors.New("provided blockchain hook not initialized")
+
+var zero = big.NewInt(0)
+
+// ConvertTimeStampSecToMs converts a timestamp from seconds to milliseconds.
+func ConvertTimeStampSecToMs(timeStamp uint64) uint64 {
+	return timeStamp * 1000 // Convert seconds to milliseconds
+
+}
+
+// ConvertTimeStampMsToSeconds converts a timestamp from milliseconds to seconds.
+func ConvertTimeStampMsToSeconds(timeStamp uint64) uint64 {
+	return timeStamp / 1000
+}
+
+// NewAddress provides the address for a new account.
+// It looks up the explicit new address mocks, if none found generates one using a fake but realistic algorithm.
+func (b *MockWorld) NewAddress(creatorAddress []byte, creatorNonce uint64, vmType []byte) ([]byte, error) {
+	// custom error
+	if b.Err != nil {
+		return nil, b.Err
+	}
+
+	// explicit new address mocks
+	// matched by creator address and nonce
+	for _, newAddressMock := range b.NewAddressMocks {
+		if bytes.Equal(creatorAddress, newAddressMock.CreatorAddress) && creatorNonce == newAddressMock.CreatorNonce {
+			b.LastCreatedContractAddress = newAddressMock.NewAddress
+			return newAddressMock.NewAddress, nil
+		}
+	}
+
+	// If a mock address wasn't registered for the specified creatorAddress, generate one automatically.
+	// This is not the real algorithm but it's simple and close enough.
+	result := GenerateMockAddress(creatorAddress, creatorNonce, vmType)
+	b.LastCreatedContractAddress = result
+	return result, nil
+}
+
+// GetStorageData yields the storage value for a certain account and storage key.
+// Should return an empty byte array if the key is missing from the account storage
+func (b *MockWorld) GetStorageData(accountAddress []byte, key []byte) ([]byte, uint32, error) {
+	// custom error
+	if b.Err != nil {
+		return nil, 0, b.Err
+	}
+
+	acct := b.AcctMap.GetAccount(accountAddress)
+	if acct == nil {
+		return []byte{}, 0, nil
+	}
+
+	foundValue := acct.StorageValue(string(key))
+	if len(foundValue) == 0 && b.ProvidedBlockchainHook != nil {
+		bhStoredValue, _, err := b.ProvidedBlockchainHook.GetStorageData(accountAddress, key)
+		if err == nil {
+			foundValue = bhStoredValue
+		}
+	}
+
+	return foundValue, 0, nil
+}
+
+// GetBlockhash should return the hash of the nth previous blockchain.
+// Offset specifies how many blocks we need to look back.
+func (b *MockWorld) GetBlockhash(nonce uint64) ([]byte, error) {
+	if b.Err != nil {
+		return nil, b.Err
+	}
+	currentNonce := b.CurrentNonce()
+	if nonce > currentNonce {
+		return nil, errors.New("requested nonce is greater than current nonce")
+	}
+	offsetInt32 := int(currentNonce - nonce)
+	if offsetInt32 >= len(b.Blockhashes) {
+		return nil, errors.New("requested nonce is older than the oldest available block nonce")
+	}
+	return b.Blockhashes[offsetInt32], nil
+}
+
+// LastNonce returns the nonce from from the last committed block
+func (b *MockWorld) LastNonce() uint64 {
+	if b.PreviousBlockInfo == nil {
+		return 0
+	}
+	return b.PreviousBlockInfo.BlockNonce
+}
+
+// LastRound returns the round from the last committed block
+func (b *MockWorld) LastRound() uint64 {
+	if b.PreviousBlockInfo == nil {
+		return 0
+	}
+	return b.PreviousBlockInfo.BlockRound
+}
+
+// LastTimeStamp returns the timeStamp from the last committed block
+func (b *MockWorld) LastTimeStamp() uint64 {
+	if b.PreviousBlockInfo == nil {
+		return 0
+	}
+	return ConvertTimeStampMsToSeconds(b.PreviousBlockInfo.BlockTimestampMs)
+}
+
+// LastTimeStampMs returns the timeStamp in milliseconds from the last committed block
+func (b *MockWorld) LastTimeStampMs() uint64 {
+	if b.PreviousBlockInfo == nil {
+		return 0
+	}
+	return b.PreviousBlockInfo.BlockTimestampMs
+}
+
+// LastRandomSeed returns the random seed from the last committed block
+func (b *MockWorld) LastRandomSeed() []byte {
+	if b.PreviousBlockInfo == nil {
+		return nil
+	}
+	return b.PreviousBlockInfo.GetRandomSeedSlice()
+}
+
+// LastEpoch returns the epoch from the last committed block
+func (b *MockWorld) LastEpoch() uint32 {
+	if b.PreviousBlockInfo == nil {
+		return 0
+	}
+	return b.PreviousBlockInfo.BlockEpoch
+}
+
+// GetStateRootHash returns the state root hash from the last committed block
+func (b *MockWorld) GetStateRootHash() []byte {
+	return b.StateRootHash
+}
+
+// ApplyDRWASyncEnvelopeBytes applies an encoded DRWA sync envelope.
+func (b *MockWorld) ApplyDRWASyncEnvelopeBytes(payload []byte, callerAddress []byte) error {
+	if b.Err != nil {
+		return b.Err
+	}
+	if b.ProvidedBlockchainHook != nil {
+		return b.ProvidedBlockchainHook.ApplyDRWASyncEnvelopeBytes(payload, callerAddress)
+	}
+
+	return ErrProvidedBlockchainHookNotInitialized
+}
+
+// QueryDRWANativeGovernance returns encoded native DRWA governance state.
+func (b *MockWorld) QueryDRWANativeGovernance(queryType uint32, key []byte) ([]byte, error) {
+	if b.Err != nil {
+		return nil, b.Err
+	}
+	if b.ProvidedBlockchainHook != nil {
+		return b.ProvidedBlockchainHook.QueryDRWANativeGovernance(queryType, key)
+	}
+
+	return nil, ErrProvidedBlockchainHookNotInitialized
+}
+
+// IsAuthorizedDRWASyncCaller returns whether the provided address is currently
+// authorized to emit DRWA sync writes.
+func (b *MockWorld) IsAuthorizedDRWASyncCaller(callerAddress []byte) bool {
+	if b.ProvidedBlockchainHook != nil {
+		return b.ProvidedBlockchainHook.IsAuthorizedDRWASyncCaller(callerAddress)
+	}
+
+	return false
+}
+
+// CurrentNonce returns the nonce from the current block
+func (b *MockWorld) CurrentNonce() uint64 {
+	if b.CurrentBlockInfo == nil {
+		return 0
+	}
+	return b.CurrentBlockInfo.BlockNonce
+}
+
+// CurrentRound returns the round from the current block
+func (b *MockWorld) CurrentRound() uint64 {
+	if b.CurrentBlockInfo == nil {
+		return 0
+	}
+	return b.CurrentBlockInfo.BlockRound
+}
+
+// RoundTime returns the duration of a round
+func (b *MockWorld) RoundTime() uint64 {
+	return 0
+}
+
+// EpochStartBlockTimeStamp returns the timestamp of the first block of the current epoch
+func (b *MockWorld) EpochStartBlockTimeStamp() uint64 {
+	if b.CurrentBlockInfo == nil {
+		return 0
+	}
+
+	// TODO: add epoch start block field in setState, instead of using current block
+	return ConvertTimeStampMsToSeconds(b.CurrentBlockInfo.BlockTimestampMs)
+}
+
+// EpochStartBlockTimeStampMs returns the timestamp in milliseconds of the first block of the current epoch
+func (b *MockWorld) EpochStartBlockTimeStampMs() uint64 {
+	if b.CurrentBlockInfo == nil {
+		return 0
+	}
+
+	// TODO: add epoch start block field in setState, instead of using current block
+	return b.CurrentBlockInfo.BlockTimestampMs
+}
+
+// EpochStartBlockNonce returns the nonce of the first block of the current epoch
+func (b *MockWorld) EpochStartBlockNonce() uint64 {
+	if b.CurrentBlockInfo == nil {
+		return 0
+	}
+
+	return b.CurrentBlockInfo.BlockNonce
+}
+
+// EpochStartBlockRound returns the round of the first block of the current epoch
+func (b *MockWorld) EpochStartBlockRound() uint64 {
+	if b.CurrentBlockInfo == nil {
+		return 0
+	}
+
+	return b.CurrentBlockInfo.BlockRound
+}
+
+// CurrentTimeStamp return the timestamp from the current block
+func (b *MockWorld) CurrentTimeStamp() uint64 {
+	if b.CurrentBlockInfo == nil {
+		return 0
+	}
+	return ConvertTimeStampMsToSeconds(b.CurrentBlockInfo.BlockTimestampMs)
+}
+
+// CurrentTimeStampMs returns the timestamp in milliseconds from the current block
+func (b *MockWorld) CurrentTimeStampMs() uint64 {
+	if b.CurrentBlockInfo == nil {
+		return 0
+	}
+	return b.CurrentBlockInfo.BlockTimestampMs
+}
+
+// CurrentRandomSeed returns the random seed from the current header
+func (b *MockWorld) CurrentRandomSeed() []byte {
+	if b.CurrentBlockInfo == nil {
+		return nil
+	}
+	return b.CurrentBlockInfo.GetRandomSeedSlice()
+}
+
+// CurrentEpoch returns the current epoch
+func (b *MockWorld) CurrentEpoch() uint32 {
+	if b.CurrentBlockInfo == nil {
+		return 0
+	}
+	return b.CurrentBlockInfo.BlockEpoch
+}
+
+// ProcessBuiltInFunction -
+func (b *MockWorld) ProcessBuiltInFunction(input *vmcommon.ContractCallInput) (*vmcommon.VMOutput, error) {
+	// custom error
+	if b.Err != nil {
+		return nil, b.Err
+	}
+
+	if b.BuiltinFuncs == nil {
+		return nil, ErrBuiltinFuncWrapperNotInitialized
+	}
+
+	return b.BuiltinFuncs.ProcessBuiltInFunction(input)
+}
+
+// GetESDTToken -
+func (b *MockWorld) GetESDTToken(address []byte, tokenIdentifier []byte, nonce uint64) (*esdt.ESDigitalToken, error) {
+	// custom error
+	if b.Err != nil {
+		return nil, b.Err
+	}
+
+	if b.BuiltinFuncs == nil {
+		return nil, ErrBuiltinFuncWrapperNotInitialized
+	}
+
+	return b.BuiltinFuncs.GetTokenData(address, tokenIdentifier, nonce)
+}
+
+// GetBuiltinFunctionNames -
+func (b *MockWorld) GetBuiltinFunctionNames() vmcommon.FunctionNames {
+	if b.BuiltinFuncs == nil {
+		return nil
+	}
+
+	return b.BuiltinFuncs.GetBuiltinFunctionNames()
+}
+
+// GetAllState simply returns the storage as-is.
+func (b *MockWorld) GetAllState(accountAddress []byte) (map[string][]byte, error) {
+	account := b.AcctMap.GetAccount(accountAddress)
+	if account == nil {
+		return nil, fmt.Errorf("account not found: %s", hex.EncodeToString(accountAddress))
+	}
+	return account.Storage, nil
+}
+
+// GetUserAccount retrieves account info from map, or error if not found.
+func (b *MockWorld) GetUserAccount(address []byte) (vmcommon.UserAccountHandler, error) {
+	// custom error
+	if b.Err != nil {
+		return nil, b.Err
+	}
+
+	account := b.AcctMap.GetAccount(address)
+	if account == nil || b.SelfShardID != account.ShardID {
+		return nil, fmt.Errorf("account not found: %s", hex.EncodeToString(address))
+	}
+
+	return account, nil
+}
+
+// GetCode retrieves the code from the given account, or nil if not found
+func (b *MockWorld) GetCode(acc vmcommon.UserAccountHandler) []byte {
+	account := b.AcctMap.GetAccount(acc.AddressBytes())
+	if account == nil || b.SelfShardID != account.ShardID {
+		return nil
+	}
+
+	return account.Code
+}
+
+// GetShardOfAddress -
+func (b *MockWorld) GetShardOfAddress(address []byte) uint32 {
+	account := b.AcctMap.GetAccount(address)
+	if account == nil {
+		return 0
+	}
+
+	return account.ShardID
+}
+
+// IsSmartContract -
+func (b *MockWorld) IsSmartContract(address []byte) bool {
+	account := b.AcctMap.GetAccount(address)
+	if account == nil {
+		return vmcommon.IsSmartContractAddress(address)
+	}
+
+	return account.IsSmartContract
+}
+
+// IsPayable -
+func (b *MockWorld) IsPayable(sndAddress []byte, rcvAddress []byte) (bool, error) {
+	account := b.AcctMap.GetAccount(rcvAddress)
+	if account == nil {
+		return true, nil
+	}
+
+	if !account.IsSmartContract {
+		return true, nil
+	}
+
+	metadata := vmcommon.CodeMetadataFromBytes(account.CodeMetadata)
+	if core.IsSmartContractAddress(sndAddress) {
+		return metadata.PayableBySC || metadata.Payable, nil
+	}
+
+	return metadata.Payable, nil
+}
+
+// SaveCompiledCode -
+func (b *MockWorld) SaveCompiledCode(codeHash []byte, code []byte) {
+	b.CompiledCode[string(codeHash)] = code
+}
+
+// GetCompiledCode -
+func (b *MockWorld) GetCompiledCode(codeHash []byte) (bool, []byte) {
+	code, found := b.CompiledCode[string(codeHash)]
+	return found, code
+}
+
+// ClearCompiledCodes -
+func (b *MockWorld) ClearCompiledCodes() {
+	b.CompiledCode = make(map[string][]byte)
+}
+
+// IsPaused -
+func (b *MockWorld) IsPaused(_ []byte) bool {
+	return b.IsPausedValue
+}
+
+// IsLimitedTransfer -
+func (b *MockWorld) IsLimitedTransfer(_ []byte) bool {
+	return b.IsLimitedTransferValue
+}
+
+// IsInterfaceNil returns true if underlying implementation is nil
+func (b *MockWorld) IsInterfaceNil() bool {
+	return b == nil
+}
