@@ -13,7 +13,7 @@ run_python_script() {
 
 wait_simulator_to_start() {
     local endpoint="${CHAIN_SIMULATOR_URL}/network/config"
-    local max_attempts="10"
+    local max_attempts="20"
     local wait_interval_in_seconds="6"
 
     echo $endpoint
