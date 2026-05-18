@@ -392,6 +392,9 @@
         { EpochEnable = 3, MaxNumNodes = 56, NodesToShufflePerShard = 2 },
     ]
 
+    # SupernovaEnableEpoch represents the epoch when sub-second finality will be enabled
+    SupernovaEnableEpoch = 2
+
 [GasSchedule]
     # GasScheduleByEpochs holds the configuration for the gas schedule that will be applied from specific epochs
     GasScheduleByEpochs = [

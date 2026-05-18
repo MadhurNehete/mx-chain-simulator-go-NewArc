@@ -973,3 +973,43 @@
 [InterceptedDataVerifier]
     CacheSpanInSec = 30
     CacheExpiryInSec = 30
+
+[TxCacheBounds]
+    MaxNumBytesPerSenderUpperBound = 33554432
+    MaxTrackedBlocks = 100
+    PropagationGracePeriodMs = 200
+
+[TxCacheSelection]
+    SelectionMaxNumTxs = 30000
+    SelectionGasRequested = 10000000000
+    SelectionGasBandwidthIncreasePercent = 400
+    SelectionGasBandwidthIncreaseScheduledPercent = 260
+    SelectionLoopDurationCheckInterval = 10
+
+[AOTSelection]
+    Enabled = true
+    CacheSize = 10
+    SelectionTimeoutMs = 150
+
+[ExecutedMiniBlocksCache]
+    Name = "ExecutedMiniBlocksCache"
+    Capacity = 500
+    Type = "SizeLRU"
+    SizeInBytes = 52428800
+
+[PostProcessTransactionsCache]
+    Name = "PostProcessTransactionsCache"
+    Capacity = 250000
+    Type = "SizeLRU"
+    SizeInBytes = 104857600
+
+[HeaderBodyCacheConfig]
+    Capacity = 1000
+
+[DirectSentTransactions]
+    CacheSpanInSec = 30
+    CacheExpiryInSec = 30
+
+[ExecutionResultInclusionEstimator]
+    SafetyMargin = 110
+    MaxResultsPerBlock = 20
