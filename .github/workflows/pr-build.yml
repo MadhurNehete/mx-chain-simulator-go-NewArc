@@ -31,4 +31,4 @@ jobs:
       - name: Build
         run: |
           cd cmd/chainsimulator 
-          go build
+          go build -mod=vendor

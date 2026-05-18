@@ -36,7 +36,7 @@ jobs:
       - name: Build and run chain simulator to fetch configs
         run: |
           cd cmd/chainsimulator 
-          go build
+          go build -mod=vendor
           ./chainsimulator --fetch-configs-and-close
 
       - name: Set up QEMU for ARM64

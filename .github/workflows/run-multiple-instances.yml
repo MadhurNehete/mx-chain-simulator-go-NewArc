@@ -30,6 +30,6 @@ jobs:
       - name: Run multiple instances
         run: |
           cd cmd/chainsimulator 
-          go build
+          go build -mod=vendor
           ./chainsimulator --fetch-configs-and-close
           python3 ../../scripts/run-multiple-instances/script.py
