@@ -537,4 +537,4 @@ To enable the host driver in the chain simulator, follow these steps:
 
 Contributions to the mx-chain-simulator-go module are welcomed. Whether you're interested in improving its features, 
 extending its capabilities, or addressing issues, your contributions can help the 
-community make the module even more robust.
+community make the module even more robust..
