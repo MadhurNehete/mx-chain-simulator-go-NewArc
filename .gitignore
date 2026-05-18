@@ -6,7 +6,9 @@
 *.exe~
 *.dll
 *.so
+!vendor/**/*.so
 *.dylib
+!vendor/**/*.dylib
 chainsimulator
 *.DS_Store
 
