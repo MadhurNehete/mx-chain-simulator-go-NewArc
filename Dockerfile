@@ -8,7 +8,7 @@ RUN go mod tidy
 
 WORKDIR /multiversx/cmd/chainsimulator
 
-RUN go build -o chainsimulator
+RUN go build -mod=vendor -o chainsimulator
 RUN rm -rf config/node/config config/proxy/config && \ 
     mkdir -p config/node/config config/proxy/config && \ 
     cp -r $(go list -mod=mod -m -f "{{.Dir}}" github.com/multiversx/mx-chain-go)/cmd/node/config/* config/node/config/ && \ 
@@ -17,11 +17,11 @@ RUN rm -rf config/node/config config/proxy/config && \
 
 RUN mkdir -p /lib_amd64 /lib_arm64
 
-RUN cp $(go list -mod=mod -m -f '{{.Dir}}' github.com/multiversx/mx-chain-vm-v1_4-go)/wasmer/libwasmer_linux_amd64.so /lib_amd64/
-RUN cp $(go list -mod=mod -m -f '{{.Dir}}' github.com/multiversx/mx-chain-vm-go)/wasmer2/libvmexeccapi.so /lib_amd64/
+RUN cp /multiversx/vendor/github.com/multiversx/mx-chain-vm-v1_4-go/wasmer/libwasmer_linux_amd64.so /lib_amd64/
+RUN cp /multiversx/vendor/github.com/multiversx/mx-chain-vm-go/wasmer2/libvmexeccapi.so /lib_amd64/
 
-RUN cp $(go list -mod=mod -m -f '{{.Dir}}' github.com/multiversx/mx-chain-vm-v1_4-go)/wasmer/libwasmer_linux_arm64_shim.so /lib_arm64/
-RUN cp $(go list -mod=mod -m -f '{{.Dir}}' github.com/multiversx/mx-chain-vm-go)/wasmer2/libvmexeccapi_arm.so /lib_arm64/
+RUN cp /multiversx/vendor/github.com/multiversx/mx-chain-vm-v1_4-go/wasmer/libwasmer_linux_arm64_shim.so /lib_arm64/
+RUN cp /multiversx/vendor/github.com/multiversx/mx-chain-vm-go/wasmer2/libvmexeccapi_arm.so /lib_arm64/
 
 FROM ubuntu:22.04
 ARG TARGETARCH
