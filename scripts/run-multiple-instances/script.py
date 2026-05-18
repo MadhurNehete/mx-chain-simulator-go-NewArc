@@ -14,7 +14,7 @@ def enqueue_output(pipe, q):
 
 
 def extract_port_from_process(proc, index):
-    port_pattern = re.compile(r'INFO.*chain simulator\'s API is accessible through the URL: localhost:(\d+)')
+    port_pattern = re.compile(r'accessible through the URL.*localhost:(\d+)')
     ansi_escape = re.compile(r'\x1B[@-_][0-?]*[ -/]*[@-~]')
 
     q = queue.Queue()
@@ -151,7 +151,7 @@ def terminate_instances(processes):
 
 
 def main():
-    num_instances = 100
+    num_instances = 10
 
     print("Starting instances...")
     processes = start_instances(num_instances)
