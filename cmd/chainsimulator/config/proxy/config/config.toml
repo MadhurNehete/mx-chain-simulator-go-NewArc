@@ -2,7 +2,6 @@
 [GeneralSettings]
    # ServerPort is the port used for the web server. The frontend will connect to this port
    ServerPort = 8080
-   BlockCacheDurationSec = 5
 
    # RequestTimeoutSec represents the maximum number of seconds a request can last until throwing an error
    RequestTimeoutSec = 80

@@ -2,9 +2,9 @@ name: Run examples
 
 on:
   push:
-    branches: [ master, feat/*, rc/* ]
+    branches: [ main, feat/*, rc/* ]
   pull_request:
-    branches: [ master, feat/*, rc/* ]
+    branches: [ main, feat/*, rc/* ]
 
 
 jobs:

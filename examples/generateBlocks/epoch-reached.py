@@ -7,13 +7,6 @@ GENERATE_BLOCKS_UNTIL_EPOCH_REACHED_URL = "simulator/generate-blocks-until-epoch
 NETWORK_STATUS_URL = "network/status/4294967295"
 
 
-def ensure_epoch(provider, target_epoch):
-    status = provider.get_network_status()
-    current_epoch = status.raw.get("erd_epoch_number", 0)
-    if current_epoch < target_epoch:
-        provider.do_post_generic(f"{GENERATE_BLOCKS_UNTIL_EPOCH_REACHED_URL}/{target_epoch}", {})
-
-
 def main():
     # create a network provider config to increase timeout
     config = NetworkProviderConfig(requests_options={"timeout": 10})
@@ -23,7 +16,7 @@ def main():
 
     target_epoch = 10
     # generate blocks until we reach the target epoch
-    ensure_epoch(provider, target_epoch)
+    provider.do_post_generic(f"{GENERATE_BLOCKS_UNTIL_EPOCH_REACHED_URL}/{target_epoch}", {})
 
     network_status = provider.get_network_status()  # will default to metachain
 

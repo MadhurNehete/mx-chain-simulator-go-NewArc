@@ -219,7 +219,7 @@ func CreateProxy(args ArgsProxy) (*ArgsOutputProxy, error) {
 		args.Config.GeneralSettings.RateLimitWindowDurationSeconds,
 		false,
 		false,
-		ensureValidCorsConfig(simulatorCorsConfig()),
+		simulatorCorsConfig(),
 	)
 	if err != nil {
 		return nil, err
@@ -251,10 +251,16 @@ func (p *proxy) GetHttpServer() *http.Server {
 //
 // The simulator is a dev/test tool; browser-driven cross-origin
 // access to its API surface should be opt-in, not the default. The
-// simulatorCorsConfig returns a default CORS configuration for the simulator.
-// By default, it returns a nil AllowedOrigins which tells our runtime helper
-// (ensureValidCorsConfig) to use a safe default or allows tests to verify
-// the "refuse by default" posture.
+// previous behaviour inherited the proxy's cors.Default() which was
+// effectively "allow all origins with credentials" — a real
+// information-leak surface for any browser tab the operator visited
+// while the simulator was running.
+//
+// The empty AllowedOrigins below tells gin-contrib/cors to refuse
+// cross-origin browser requests. Operators who need cross-origin
+// access (e.g. a local dApp dev loop) should configure their browser
+// to skip CORS for the localhost simulator port, or wrap this with
+// an environment-driven config.
 func simulatorCorsConfig() config.CorsConfig {
 	return config.CorsConfig{
 		AllowedOrigins:   nil,
@@ -262,16 +268,6 @@ func simulatorCorsConfig() config.CorsConfig {
 		AllowedHeaders:   []string{"Origin", "Content-Type", "Accept"},
 		AllowCredentials: false,
 	}
-}
-
-func ensureValidCorsConfig(cfg config.CorsConfig) config.CorsConfig {
-	if len(cfg.AllowedOrigins) == 0 {
-		// If no origins are specified, gin-contrib/cors will panic.
-		// We default to "*" for the simulator to remain operational
-		// while maintaining the internal config as nil for unit test compatibility.
-		cfg.AllowedOrigins = []string{"*"}
-	}
-	return cfg
 }
 
 // Close will close the proxy

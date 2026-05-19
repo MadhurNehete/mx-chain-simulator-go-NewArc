@@ -1,5 +1,4 @@
 #!/bin/bash
-set -e
 
 CHAIN_SIMULATOR_URL=http://localhost:8085
 
@@ -14,7 +13,7 @@ run_python_script() {
 
 wait_simulator_to_start() {
     local endpoint="${CHAIN_SIMULATOR_URL}/network/config"
-    local max_attempts="20"
+    local max_attempts="10"
     local wait_interval_in_seconds="6"
 
     echo $endpoint

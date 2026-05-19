@@ -3,6 +3,7 @@ package configs
 import (
 	"encoding/pem"
 	"os"
+	"os/exec"
 	"path"
 
 	"github.com/multiversx/mx-chain-core-go/core"
@@ -36,7 +37,8 @@ type ArgsOutputConfig struct {
 func CreateProxyConfigs(args ArgsProxyConfigs) (*ArgsOutputConfig, error) {
 	newConfigsPath := path.Join(args.TemDir, "proxyConfig")
 
-	err := copyFolderWithAllFiles(args.PathToProxyConfig, newConfigsPath)
+	cmd := exec.Command("cp", "-r", args.PathToProxyConfig, newConfigsPath)
+	err := cmd.Run()
 	if err != nil {
 		return nil, err
 	}

@@ -208,12 +208,6 @@ func startChainSimulator(ctx *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	defer func() {
-		errRemove := os.RemoveAll(tempDir)
-		if errRemove != nil {
-			log.Error("cannot remove temp dir", "path", tempDir, "error", errRemove.Error())
-		}
-	}()
 
 	var alterConfigsError error
 	argsChainSimulator := chainSimulator.ArgsChainSimulator{

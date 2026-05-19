@@ -8,20 +8,11 @@ from multiversx_sdk import (Address, ProxyNetworkProvider,
                             TransactionsFactoryConfig, UserSecretKey)
 
 SIMULATOR_URL = "http://localhost:8085"
-GENERATE_BLOCKS_URL = "simulator/generate-blocks"
 GENERATE_BLOCKS_UNTIL_EPOCH_REACHED_URL = "simulator/generate-blocks-until-epoch-reached"
 GENERATE_BLOCKS_UNTIL_TX_PROCESSED = "simulator/generate-blocks-until-transaction-processed"
 WRAPPED_EGLD_TOKEN = "WEGLD-bd4d79"
 
 parent_directory = Path(__file__).parent
-
-
-def ensure_epoch(provider, target_epoch):
-    status = provider.get_network_status()
-    current_epoch = status.raw.get("erd_epoch_number", 0)
-    if current_epoch < target_epoch:
-        provider.do_post_generic(f"{GENERATE_BLOCKS_UNTIL_EPOCH_REACHED_URL}/{target_epoch}", {})
-
 
 def main():
     # create a network provider
@@ -32,16 +23,11 @@ def main():
     print(f"working with the generated address: {address.to_bech32()}")
 
     # call proxy faucet
-    data = {
-        "receiver": f"{address.to_bech32()}",
-        "value": 20000000000000000000000  # 20k eGLD
-    }
+    data = {"receiver": f"{address.to_bech32()}"}
     provider.do_post_generic("transaction/send-user-funds", data)
-    # generate blocks to ensure cross-shard settlement of faucet funds
-    provider.do_post_generic(f"{GENERATE_BLOCKS_URL}/10", {})
 
     # generate blocks until ESDTs are enabled
-    ensure_epoch(provider, 1)
+    provider.do_post_generic(f"{GENERATE_BLOCKS_UNTIL_EPOCH_REACHED_URL}/1", {})
 
     # set state for wrapped egld contract and system account on shard 1
     # load JSON data from the file

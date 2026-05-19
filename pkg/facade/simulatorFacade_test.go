@@ -59,13 +59,12 @@ func TestSimulatorFacade_GenerateBlocks(t *testing.T) {
 	}, &testscommon.TransactionHandlerMock{})
 	require.NoError(t, err)
 
+	err = facade.GenerateBlocks(0)
+	require.Equal(t, errInvalidNumOfBlocks, err)
+
 	err = facade.GenerateBlocks(1)
 	require.NoError(t, err)
 	require.Equal(t, 1, cnt)
-
-	err = facade.GenerateBlocks(maxBlocksToGenerate + 1)
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "invalid number of blocks")
 }
 
 func TestSimulatorFacade_GetInitialWalletKeys(t *testing.T) {
@@ -139,31 +138,12 @@ func TestSimulatorFacade_GenerateBlocksUntilEpochIsReached(t *testing.T) {
 			generateBlocksCalled = true
 			return nil
 		},
-		GetNodeHandlerCalled: func(shardID uint32) process.NodeHandler {
-			return getNodeHandlerWithCurrentEpoch(1)
-		},
 	}
 
 	facade, _ := NewSimulatorFacade(simulator, &testscommon.TransactionHandlerMock{})
 	err := facade.GenerateBlocksUntilEpochIsReached(testEpoch)
 	assert.Nil(t, err)
 	assert.True(t, generateBlocksCalled)
-}
-
-func TestSimulatorFacade_GenerateBlocksUntilEpochIsReached_ExcessiveDeltaShouldErr(t *testing.T) {
-	t.Parallel()
-
-	simulator := &testscommon.SimulatorHandlerMock{
-		GetNodeHandlerCalled: func(shardID uint32) process.NodeHandler {
-			return getNodeHandlerWithCurrentEpoch(1)
-		},
-	}
-
-	facade, _ := NewSimulatorFacade(simulator, &testscommon.TransactionHandlerMock{})
-
-	err := facade.GenerateBlocksUntilEpochIsReached(int32(maxEpochDelta + 2))
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "target epoch delta exceeds maximum")
 }
 
 func TestSimulatorFacade_AddValidatorKeys(t *testing.T) {

@@ -22,7 +22,6 @@ const (
 	errMsgAccountNotFound                  = "account was not found"
 	maxValidatorKeys                       = 400
 	maxEpochDelta                          = uint32(100)
-	maxBlocksToGenerate                    = 10000
 )
 
 var log = logger.GetOrCreate("simulator/facade")
@@ -60,8 +59,8 @@ func NewSimulatorFacade(simulator SimulatorHandler, transactionHandler ProxyTran
 
 // GenerateBlocks will generate a provided number of blocks
 func (sf *simulatorFacade) GenerateBlocks(numOfBlocks int) error {
-	if numOfBlocks <= 0 || numOfBlocks > maxBlocksToGenerate {
-		return fmt.Errorf("invalid number of blocks, must be between 1 and %d", maxBlocksToGenerate)
+	if numOfBlocks <= 0 {
+		return errInvalidNumOfBlocks
 	}
 	sf.mutMutating.Lock()
 	defer sf.mutMutating.Unlock()
@@ -158,18 +157,6 @@ func (sf *simulatorFacade) AddValidatorKeys(validators *dtoc.ValidatorKeys) erro
 func (sf *simulatorFacade) GenerateBlocksUntilEpochIsReached(targetEpoch int32) error {
 	sf.mutMutating.Lock()
 	defer sf.mutMutating.Unlock()
-
-	currentEpoch, err := sf.getCurrentEpoch()
-	if err != nil {
-		return err
-	}
-	if targetEpoch < int32(currentEpoch) {
-		return fmt.Errorf("%s, current epoch: %d target epoch: %d", errMsgTargetEpochLowerThanCurrentEpoch, currentEpoch, targetEpoch)
-	}
-	if uint32(targetEpoch)-currentEpoch > maxEpochDelta {
-		return fmt.Errorf("target epoch delta exceeds maximum: %d", maxEpochDelta)
-	}
-
 	return sf.simulator.GenerateBlocksUntilEpochIsReached(targetEpoch)
 }
 

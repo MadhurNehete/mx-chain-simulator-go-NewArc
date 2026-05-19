@@ -1,10 +1,10 @@
 name: Publish Docker image
 
 on:
-  push:
-    branches: [ master, feat/*, rc/* ]
+  release:
+    types: [published]
   pull_request:
-    branches: [ master, feat/*, rc/* ]
+  workflow_dispatch:
 
 jobs:
   push_to_registry:
@@ -36,7 +36,7 @@ jobs:
       - name: Build and run chain simulator to fetch configs
         run: |
           cd cmd/chainsimulator 
-          go build -mod=vendor
+          go build
           ./chainsimulator --fetch-configs-and-close
 
       - name: Set up QEMU for ARM64

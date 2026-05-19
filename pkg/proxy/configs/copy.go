@@ -16,11 +16,6 @@ func copyFolderWithAllFiles(src, dst string) error {
 			return err
 		}
 
-		if info.Mode()&os.ModeSymlink != 0 {
-			log.Warn("skipping symbolic link", "path", path)
-			return nil
-		}
-
 		if info.IsDir() {
 			return os.MkdirAll(filepath.Join(dst, relPath), info.Mode())
 		}
