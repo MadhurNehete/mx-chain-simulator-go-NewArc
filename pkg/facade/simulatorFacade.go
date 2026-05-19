@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/multiversx/mx-chain-core-go/core"
 	"github.com/multiversx/mx-chain-core-go/core/check"
@@ -20,8 +19,7 @@ import (
 const (
 	errMsgTargetEpochLowerThanCurrentEpoch = "target epoch must be greater than current epoch"
 	errMsgAccountNotFound                  = "account was not found"
-	maxValidatorKeys                       = 400
-	maxEpochDelta                          = uint32(100)
+	numBlocksToGenerate                    = 2
 )
 
 var log = logger.GetOrCreate("simulator/facade")
@@ -31,15 +29,6 @@ var errPendingTransaction = errors.New("something went wrong, transaction is sti
 type simulatorFacade struct {
 	simulator          SimulatorHandler
 	transactionHandler ProxyTransactionsHandler
-
-	// mutMutating serialises every endpoint that mutates the underlying
-	// simulator (block generation, state writes, validator-key
-	// management, forced epoch transitions). The simulator handler's
-	// own thread-safety is not documented as guaranteed; concurrent
-	// HTTP requests to two of these endpoints would otherwise race on
-	// the same handler. Read-only endpoints (queries, status) remain
-	// unsynchronised.
-	mutMutating sync.Mutex
 }
 
 // NewSimulatorFacade will create a new instance of simulatorFacade
@@ -62,8 +51,6 @@ func (sf *simulatorFacade) GenerateBlocks(numOfBlocks int) error {
 	if numOfBlocks <= 0 {
 		return errInvalidNumOfBlocks
 	}
-	sf.mutMutating.Lock()
-	defer sf.mutMutating.Unlock()
 	return sf.simulator.GenerateBlocks(numOfBlocks)
 }
 
@@ -74,19 +61,11 @@ func (sf *simulatorFacade) GetInitialWalletKeys() *dtos.InitialWalletKeys {
 
 // SetKeyValueForAddress will set the provided state for an address
 func (sf *simulatorFacade) SetKeyValueForAddress(address string, keyValueMap map[string]string) error {
-	sf.mutMutating.Lock()
-	defer sf.mutMutating.Unlock()
 	return sf.simulator.SetKeyValueForAddress(address, keyValueMap)
 }
 
 // SetStateMultiple will set the entire state for the provided addresses
 func (sf *simulatorFacade) SetStateMultiple(stateSlice []*dtos.AddressState, noGenerate bool) error {
-	if len(stateSlice) > 1024 {
-		return errors.New("too many state entries")
-	}
-	sf.mutMutating.Lock()
-	defer sf.mutMutating.Unlock()
-
 	err := sf.simulator.SetStateMultiple(stateSlice)
 	if err != nil {
 		return err
@@ -96,17 +75,11 @@ func (sf *simulatorFacade) SetStateMultiple(stateSlice []*dtos.AddressState, noG
 		return nil
 	}
 
-	return sf.simulator.GenerateBlocks(1)
+	return sf.simulator.GenerateBlocks(numBlocksToGenerate)
 }
 
 // SetStateMultipleOverwrite will set the entire state for the provided address and cleanup the old state of the provided addresses
 func (sf *simulatorFacade) SetStateMultipleOverwrite(stateSlice []*dtos.AddressState, noGenerate bool) error {
-	if len(stateSlice) > 1024 {
-		return errors.New("too many state entries")
-	}
-	sf.mutMutating.Lock()
-	defer sf.mutMutating.Unlock()
-
 	for _, state := range stateSlice {
 		// TODO MX-15414
 		err := sf.simulator.RemoveAccounts([]string{state.Address})
@@ -125,14 +98,11 @@ func (sf *simulatorFacade) SetStateMultipleOverwrite(stateSlice []*dtos.AddressS
 		return nil
 	}
 
-	return sf.simulator.GenerateBlocks(1)
+	return sf.simulator.GenerateBlocks(numBlocksToGenerate)
 }
 
 // AddValidatorKeys will add the validator keys in the multi key handler
 func (sf *simulatorFacade) AddValidatorKeys(validators *dtoc.ValidatorKeys) error {
-	if validators == nil || len(validators.PrivateKeysBase64) > maxValidatorKeys {
-		return errors.New("invalid validator keys count")
-	}
 	validatorsPrivateKeys := make([][]byte, 0, len(validators.PrivateKeysBase64))
 	for idx, privateKeyBase64 := range validators.PrivateKeysBase64 {
 		privateKeyHexBytes, err := base64.StdEncoding.DecodeString(privateKeyBase64)
@@ -148,43 +118,28 @@ func (sf *simulatorFacade) AddValidatorKeys(validators *dtoc.ValidatorKeys) erro
 		validatorsPrivateKeys = append(validatorsPrivateKeys, privateKeyBytes)
 	}
 
-	sf.mutMutating.Lock()
-	defer sf.mutMutating.Unlock()
 	return sf.simulator.AddValidatorKeys(validatorsPrivateKeys)
 }
 
 // GenerateBlocksUntilEpochIsReached will generate as many blocks are required until the target epoch is reached
 func (sf *simulatorFacade) GenerateBlocksUntilEpochIsReached(targetEpoch int32) error {
-	sf.mutMutating.Lock()
-	defer sf.mutMutating.Unlock()
 	return sf.simulator.GenerateBlocksUntilEpochIsReached(targetEpoch)
 }
 
 // ForceUpdateValidatorStatistics will force the reset of the cache used for the validators statistics endpoint
 func (sf *simulatorFacade) ForceUpdateValidatorStatistics() error {
-	sf.mutMutating.Lock()
-	defer sf.mutMutating.Unlock()
 	return sf.simulator.ForceResetValidatorStatisticsCache()
 }
 
 // ForceChangeOfEpoch will force change the current epoch
 func (sf *simulatorFacade) ForceChangeOfEpoch(targetEpoch uint32) error {
-	sf.mutMutating.Lock()
-	defer sf.mutMutating.Unlock()
-
 	if targetEpoch == 0 {
 		return sf.simulator.ForceChangeOfEpoch()
 	}
 
-	currentEpoch, err := sf.getCurrentEpoch()
-	if err != nil {
-		return err
-	}
+	currentEpoch := sf.getCurrentEpoch()
 	if currentEpoch >= targetEpoch {
 		return fmt.Errorf("%s, current epoch: %d target epoch: %d", errMsgTargetEpochLowerThanCurrentEpoch, currentEpoch, targetEpoch)
-	}
-	if targetEpoch-currentEpoch > maxEpochDelta {
-		return fmt.Errorf("target epoch delta exceeds maximum: %d", maxEpochDelta)
 	}
 
 	for currentEpoch < targetEpoch {
@@ -193,10 +148,7 @@ func (sf *simulatorFacade) ForceChangeOfEpoch(targetEpoch uint32) error {
 			return err
 		}
 
-		currentEpoch, err = sf.getCurrentEpoch()
-		if err != nil {
-			return err
-		}
+		currentEpoch = sf.getCurrentEpoch()
 	}
 
 	return nil
@@ -248,21 +200,8 @@ func (sf *simulatorFacade) GenerateBlocksUntilTransactionIsProcessed(txHash stri
 	return errors.New("something went wrong, transaction is still in pending")
 }
 
-func (sf *simulatorFacade) getCurrentEpoch() (uint32, error) {
-	nodeHandler := sf.simulator.GetNodeHandler(core.MetachainShardId)
-	if check.IfNil(nodeHandler) {
-		return 0, errors.New("missing metachain node handler")
-	}
-	processComponents := nodeHandler.GetProcessComponents()
-	if check.IfNil(processComponents) {
-		return 0, errors.New("missing process components")
-	}
-	epochStartTrigger := processComponents.EpochStartTrigger()
-	if check.IfNil(epochStartTrigger) {
-		return 0, errors.New("missing epoch start trigger")
-	}
-
-	return epochStartTrigger.Epoch(), nil
+func (sf *simulatorFacade) getCurrentEpoch() uint32 {
+	return sf.simulator.GetNodeHandler(core.MetachainShardId).GetProcessComponents().EpochStartTrigger().Epoch()
 }
 
 // IsInterfaceNil returns true if there is no value under the interface

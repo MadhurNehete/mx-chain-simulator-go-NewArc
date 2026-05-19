@@ -2,7 +2,7 @@ package configs
 
 import (
 	"os"
-	"path/filepath"
+	"path"
 	"runtime/debug"
 	"strings"
 
@@ -64,17 +64,8 @@ func (f *fetcher) FetchNodeConfigs(info *debug.BuildInfo, pathWhereToPutConfigs 
 }
 
 func (f *fetcher) fetchConfigFolder(repo string, version string, pathWhereToSaveConfig string, app string) error {
-	pathToRepo, err := os.MkdirTemp("", "mx-chain-simulator-configs-*")
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if errRemove := os.RemoveAll(pathToRepo); errRemove != nil {
-			log.Warn("failed to remove temporary config repository", "path", pathToRepo, "error", errRemove)
-		}
-	}()
-
-	err = f.gitFetcher.Clone(repo, pathToRepo)
+	pathToRepo := path.Join(os.TempDir(), "repo")
+	err := f.gitFetcher.Clone(repo, pathToRepo)
 	if err != nil {
 		return err
 	}
@@ -84,13 +75,13 @@ func (f *fetcher) fetchConfigFolder(repo string, version string, pathWhereToSave
 		return err
 	}
 
-	pathToRepoConfigs := filepath.Join(pathToRepo, "cmd", app, "config")
+	pathToRepoConfigs := path.Join(pathToRepo, "cmd", app, "config")
 	err = copyFolderWithAllFiles(pathToRepoConfigs, pathWhereToSaveConfig)
 	if err != nil {
 		return err
 	}
 
-	return nil
+	return os.RemoveAll(pathToRepo)
 }
 
 func extractTag(info *debug.BuildInfo, repo string) string {

@@ -4,13 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strconv"
-	"sync/atomic"
-	"time"
 
+	"github.com/btcsuite/websocket"
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 	"github.com/multiversx/mx-chain-core-go/marshal"
 	"github.com/multiversx/mx-chain-go/api/logs"
 	"github.com/multiversx/mx-chain-go/node/chainSimulator/dtos"
@@ -40,13 +37,7 @@ const (
 	queryParamMaxNumBlocks = "maxNumBlocks"
 
 	maxNumOfBlockToGenerateUntilTxProcessed = 20
-	maxSimulatorRequestBodySize             = 10 << 20
-	maxStateEntries                         = 1024
-	maxValidatorKeys                        = 400
-	maxLogStreams                           = int32(64)
 )
-
-var activeLogStreams int32
 
 type endpointsProcessor struct {
 	facade SimulatorFacade
@@ -65,17 +56,6 @@ func (ep *endpointsProcessor) ExtendProxyServer(httpServer *http.Server) error {
 	if !ok {
 		return errors.New("cannot cast httpServer.Handler to gin.Engine")
 	}
-
-	// ISSUE-004 layer 2: opt-in Bearer-token auth on every endpoint.
-	// No-op when MX_CHAIN_SIMULATOR_AUTH_TOKEN is unset/empty (preserves
-	// the historical zero-auth behavior so existing dev/CI workflows that
-	// rely on loopback-bind safety continue to work). When set, the
-	// middleware gates every method on every route registered against
-	// this engine — including GET /simulator/initial-wallets, which
-	// returns WalletKey.PrivateKeyHex and therefore must NOT be exempt
-	// (regression closure: the previous "safe-method exemption" leaked
-	// initial wallet keys to any unauthenticated caller).
-	ws.Use(newAuthMiddleware())
 
 	ws.POST(generateBlocksEndpoint, ep.generateBlocks)
 	ws.POST(generateBlocksUntilEpochReached, ep.generateBlocksUntilEpochReached)
@@ -97,25 +77,12 @@ func (ep *endpointsProcessor) ExtendProxyServer(httpServer *http.Server) error {
 
 // registerLoggerWsRoute will register the log route
 func registerLoggerWsRoute(ws *gin.Engine, serializer marshal.Marshalizer) {
-	// ISSUE-029: migrated from github.com/btcsuite/websocket to
-	// github.com/gorilla/websocket so the whole stack uses the same
-	// WebSocket implementation (gorilla is what notifier and chain-go
-	// already use). Same API, fewer parser quirks to track. Also build
-	// the upgrader ONCE with HandshakeTimeout + the strict origin check
-	// (the previous code re-assigned CheckOrigin inside the handler on
-	// every connection, which works but is wasteful).
-	upgrader := websocket.Upgrader{
-		HandshakeTimeout: 10 * time.Second,
-		CheckOrigin:      isAllowedWebSocketOrigin,
-	}
+	upgrader := websocket.Upgrader{}
 
 	ws.GET("/log", func(c *gin.Context) {
-		if atomic.AddInt32(&activeLogStreams, 1) > maxLogStreams {
-			atomic.AddInt32(&activeLogStreams, -1)
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": "too many log streams"})
-			return
+		upgrader.CheckOrigin = func(r *http.Request) bool {
+			return true
 		}
-		defer atomic.AddInt32(&activeLogStreams, -1)
 
 		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
@@ -137,10 +104,6 @@ func (ep *endpointsProcessor) forceEpochChange(c *gin.Context) {
 	targetEpoch, err := getTargetEpochQueryParam(c)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	if targetEpoch < 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "targetEpoch must not be negative"})
 		return
 	}
 
@@ -214,13 +177,8 @@ func (ep *endpointsProcessor) generateBlocksUntilEpochReached(c *gin.Context) {
 func (ep *endpointsProcessor) generateBlocksUntilTransactionProcessed(c *gin.Context) {
 	txHashStr := c.Param("txHash")
 
-	maxNumBlocks, err := getMaxNumBlocksToGenerate(c)
-	if err != nil {
-		shared.RespondWithBadRequest(c, err.Error())
-		return
-	}
-
-	err = ep.facade.GenerateBlocksUntilTransactionIsProcessed(txHashStr, maxNumBlocks)
+	maxNumBlocks := getMaxNumBlocksToGenerate(c)
+	err := ep.facade.GenerateBlocksUntilTransactionIsProcessed(txHashStr, maxNumBlocks)
 	if err != nil {
 		shared.RespondWithInternalError(c, errors.New("cannot generate blocks"), err)
 		return
@@ -252,14 +210,6 @@ func (ep *endpointsProcessor) setKeyValue(c *gin.Context) {
 		return
 	}
 
-	// ISSUE-018: gate body size before ShouldBindJSON. Sibling mutators
-	// (setStateMultiple, setStateMultipleOverwrite, addValidatorKeys)
-	// all do this; setKeyValue used to skip it, letting a multi-GiB POST
-	// drain memory inside the JSON parser.
-	if !limitRequestBody(c) {
-		return
-	}
-
 	var keyValueMap = map[string]string{}
 	err := c.ShouldBindJSON(&keyValueMap)
 	if err != nil {
@@ -285,43 +235,18 @@ func getQueryParamNoGenerate(c *gin.Context) (bool, error) {
 	return strconv.ParseBool(withResultsStr)
 }
 
-func getMaxNumBlocksToGenerate(c *gin.Context) (int, error) {
+func getMaxNumBlocksToGenerate(c *gin.Context) int {
 	withResultsStr := c.Request.URL.Query().Get(queryParamMaxNumBlocks)
 	if withResultsStr == "" {
-		return maxNumOfBlockToGenerateUntilTxProcessed, nil
+		return maxNumOfBlockToGenerateUntilTxProcessed
 	}
 
 	value, err := strconv.Atoi(withResultsStr)
 	if err != nil {
-		return 0, fmt.Errorf("invalid %s value", queryParamMaxNumBlocks)
-	}
-	if value <= 0 {
-		return 0, fmt.Errorf("%s must be positive", queryParamMaxNumBlocks)
-	}
-	if value > maxNumOfBlockToGenerateUntilTxProcessed {
-		return 0, fmt.Errorf("%s must be at most %d", queryParamMaxNumBlocks, maxNumOfBlockToGenerateUntilTxProcessed)
+		return maxNumOfBlockToGenerateUntilTxProcessed
 	}
 
-	return value, nil
-}
-
-func isAllowedWebSocketOrigin(r *http.Request) bool {
-	// ISSUE-029: previously empty Origin was accepted unconditionally,
-	// allowing non-browser clients without browser CSRF protection.
-	// Reject empty Origin: simulator /log is loopback-only by default
-	// (cmd/chainsimulator/main.go:164) and any local consumer can set
-	// a same-host Origin header trivially.
-	origin := r.Header.Get("Origin")
-	if origin == "" {
-		return false
-	}
-
-	parsedOrigin, err := url.Parse(origin)
-	if err != nil {
-		return false
-	}
-
-	return parsedOrigin.Host == r.Host
+	return value
 }
 
 func (ep *endpointsProcessor) setStateMultiple(c *gin.Context) {
@@ -333,16 +258,9 @@ func (ep *endpointsProcessor) setStateMultiple(c *gin.Context) {
 		return
 	}
 
-	if !limitRequestBody(c) {
-		return
-	}
 	err = c.ShouldBindJSON(&stateSlice)
 	if err != nil {
 		shared.RespondWithBadRequest(c, fmt.Sprintf("invalid state structure, error: %s", err.Error()))
-		return
-	}
-	if len(stateSlice) > maxStateEntries {
-		shared.RespondWithBadRequest(c, "too many state entries")
 		return
 	}
 
@@ -363,16 +281,9 @@ func (ep *endpointsProcessor) setStateMultipleOverwrite(c *gin.Context) {
 	}
 
 	var stateSlice []*dtos.AddressState
-	if !limitRequestBody(c) {
-		return
-	}
 	err = c.ShouldBindJSON(&stateSlice)
 	if err != nil {
 		shared.RespondWithBadRequest(c, fmt.Sprintf("invalid state structure, error: %s", err.Error()))
-		return
-	}
-	if len(stateSlice) > maxStateEntries {
-		shared.RespondWithBadRequest(c, "too many state entries")
 		return
 	}
 
@@ -388,16 +299,9 @@ func (ep *endpointsProcessor) setStateMultipleOverwrite(c *gin.Context) {
 func (ep *endpointsProcessor) addValidatorKeys(c *gin.Context) {
 	validatorsKeys := &dtosc.ValidatorKeys{}
 
-	if !limitRequestBody(c) {
-		return
-	}
 	err := c.ShouldBindJSON(validatorsKeys)
 	if err != nil {
 		shared.RespondWithBadRequest(c, fmt.Sprintf("invalid validators keys structure, error: %s", err.Error()))
-		return
-	}
-	if len(validatorsKeys.PrivateKeysBase64) > maxValidatorKeys {
-		shared.RespondWithBadRequest(c, "too many validator keys")
 		return
 	}
 
@@ -408,16 +312,6 @@ func (ep *endpointsProcessor) addValidatorKeys(c *gin.Context) {
 	}
 
 	shared.RespondWith(c, http.StatusOK, gin.H{}, "", data.ReturnCodeSuccess)
-}
-
-func limitRequestBody(c *gin.Context) bool {
-	if c.Request.ContentLength > maxSimulatorRequestBodySize {
-		shared.RespondWithBadRequest(c, "request body too large")
-		return false
-	}
-
-	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxSimulatorRequestBodySize)
-	return true
 }
 
 func (ep *endpointsProcessor) forceUpdateValidatorStatistics(c *gin.Context) {

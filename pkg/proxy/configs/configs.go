@@ -74,21 +74,11 @@ func CreateProxyConfigs(args ArgsProxyConfigs) (*ArgsOutputConfig, error) {
 	}, nil
 }
 
-func generatePemFromInitialAddress(fileName string, initialAddresses map[uint32]*dtos.WalletKey) (err error) {
-	file, err := os.OpenFile(fileName, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, core.FileModeUserReadWrite)
+func generatePemFromInitialAddress(fileName string, initialAddresses map[uint32]*dtos.WalletKey) error {
+	file, err := os.OpenFile(fileName, os.O_CREATE|os.O_WRONLY, core.FileModeReadWrite)
 	if err != nil {
 		return err
 	}
-	if err = file.Chmod(core.FileModeUserReadWrite); err != nil {
-		_ = file.Close()
-		return err
-	}
-	defer func() {
-		closeErr := file.Close()
-		if err == nil {
-			err = closeErr
-		}
-	}()
 
 	for _, wallet := range initialAddresses {
 		blk := pem.Block{
@@ -96,7 +86,8 @@ func generatePemFromInitialAddress(fileName string, initialAddresses map[uint32]
 			Bytes: []byte(wallet.PrivateKeyHex),
 		}
 
-		if err = pem.Encode(file, &blk); err != nil {
+		err = pem.Encode(file, &blk)
+		if err != nil {
 			return err
 		}
 	}

@@ -1,7 +1,6 @@
 package configs
 
 import (
-	"os"
 	"testing"
 
 	"github.com/multiversx/mx-chain-go/node/chainSimulator/dtos"
@@ -50,9 +49,5 @@ func TestCreateProxyConfigs(t *testing.T) {
 		cfg, err := CreateProxyConfigs(createArgsProxyConfigs(t))
 		require.NoError(t, err)
 		require.NotNil(t, cfg)
-
-		fileInfo, err := os.Stat(cfg.PathToPemFile)
-		require.NoError(t, err)
-		require.Equal(t, os.FileMode(0600), fileInfo.Mode().Perm())
 	})
 }
